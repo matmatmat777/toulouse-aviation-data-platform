@@ -67,3 +67,14 @@ jobs:
 
       - name: Build Docker images
         run: docker compose build
+
+    deploy-demo:
+    runs-on: ubuntu-latest
+    needs:
+      - tests-pyspark
+      - terraform-check
+      - docker-check
+
+    steps:
+      - name: Simulate deployment
+        run: echo "All quality gates passed - deployment authorized"

@@ -34,9 +34,19 @@ jobs:
   terraform-check:
     runs-on: ubuntu-latest
 
+    permissions:
+      contents: read
+      id-token: write
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: projects/408818015704/locations/global/workloadIdentityPools/github/providers/github-provider
+          service_account: github-cicd@toulouse-aviation-data.iam.gserviceaccount.com
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
@@ -48,11 +58,15 @@ jobs:
         working-directory: terraform
 
       - name: Initialize Terraform
-        run: terraform init -backend=false
+        run: terraform init
         working-directory: terraform/environments/dev
 
       - name: Validate Terraform
         run: terraform validate
+        working-directory: terraform/environments/dev
+
+      - name: Plan Terraform
+        run: terraform plan -input=false
         working-directory: terraform/environments/dev
 
   docker-check:

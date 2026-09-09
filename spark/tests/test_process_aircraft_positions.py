@@ -138,7 +138,7 @@ def test_enrichment_adds_airline_name(spark):
     airlines = [
         (
             "AFR",
-            "Air France FAUX"
+            "Air France"
         )
     ]
 

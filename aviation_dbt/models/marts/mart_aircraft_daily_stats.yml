@@ -1,0 +1,21 @@
+version: 2
+
+models:
+  - name: mart_aircraft_daily_stats
+    description: "Statistiques quotidiennes des positions par aéronef, destinées à la consommation analytique."
+
+    columns:
+      - name: flight_date
+        description: "Date des positions observées."
+        data_tests:
+          - not_null
+
+      - name: icao24
+        description: "Identifiant ICAO24 de l'aéronef."
+        data_tests:
+          - not_null
+
+      - name: position_count
+        description: "Nombre de positions uniques observées pour l'aéronef."
+        data_tests:
+          - not_null

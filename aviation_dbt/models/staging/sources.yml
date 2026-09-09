@@ -1,0 +1,9 @@
+version: 2
+
+sources:
+  - name: aviation_raw
+    database: toulouse-aviation-data
+    schema: aviation_raw
+
+    tables:
+      - name: aircraft_positions

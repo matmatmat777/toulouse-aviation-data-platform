@@ -1,0 +1,16 @@
+version: 2
+
+models:
+  - name: stg_aircraft_positions
+    description: "Positions des aéronefs nettoyées à partir des données RAW."
+
+    columns:
+      - name: icao24
+        description: "Identifiant ICAO24 de l'aéronef."
+        data_tests:
+          - not_null
+
+      - name: timestamp
+        description: "Horodatage de la position de l'aéronef."
+        data_tests:
+          - not_null

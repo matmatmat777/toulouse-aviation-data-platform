@@ -1,0 +1,61 @@
+name: Toulouse Aviation CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  tests-pyspark:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest pyspark
+
+      - name: Run PySpark tests
+        run: python -m pytest -v spark/tests/
+
+  terraform-check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Check Terraform formatting
+        run: terraform fmt -check
+        working-directory: terraform/environments/dev
+
+      - name: Initialize Terraform
+        run: terraform init -backend=false
+        working-directory: terraform/environments/dev
+
+      - name: Validate Terraform
+        run: terraform validate
+        working-directory: terraform/environments/dev
+
+  docker-check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate Docker Compose
+        run: docker compose config
+
+      - name: Build Docker images
+        run: docker compose build

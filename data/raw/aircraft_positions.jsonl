@@ -1,0 +1,7 @@
+{"icao24":"39abcd","callsign":"AFR123","latitude":43.6047,"longitude":1.4442,"altitude":10000.0,"timestamp":"2026-09-03T13:00:00","ingestion_timestamp":"2026-09-03T13:00:05"}
+{"icao24":"39abcd","callsign":"AFR123","latitude":43.6047,"longitude":1.4442,"altitude":10100.0,"timestamp":"2026-09-03T13:00:00","ingestion_timestamp":"2026-09-03T13:00:08"}
+{"icao24":"39abcd","callsign":"AFR123","latitude":43.7000,"longitude":1.5000,"altitude":10500.0,"timestamp":"2026-09-03T13:01:00","ingestion_timestamp":"2026-09-03T13:01:05"}
+{"icao24":"4ca123","callsign":"RYR456","latitude":44.1000,"longitude":2.0000,"altitude":9000.0,"timestamp":"2026-09-03T13:02:00","ingestion_timestamp":"2026-09-03T13:02:05"}
+{"icao24":"bad001","callsign":"TEST01","latitude":43.6000,"longitude":1.4000,"altitude":-500.0,"timestamp":"2026-09-03T13:03:00","ingestion_timestamp":"2026-09-03T13:03:05"}
+{"icao24":"bad002","callsign":"TEST02","latitude":43.6000,"longitude":1.4000,"altitude":null,"timestamp":"2026-09-03T13:04:00","ingestion_timestamp":"2026-09-03T13:04:05"}
+{"icao24":"bad003","callsign":"TEST03","latitude":43.6,"longitude":1.4,"altitude":"PAS_UN_NOMBRE","timestamp":"2026-09-03T13:05:00","ingestion_timestamp":"2026-09-03T13:05:05"}

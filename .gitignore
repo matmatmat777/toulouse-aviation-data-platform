@@ -58,4 +58,4 @@ logs/
 crash.log
 crash.*.log
 
-data/metrics/
+data/metrics/data/delta/

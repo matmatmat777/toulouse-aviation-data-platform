@@ -57,3 +57,5 @@ logs/
 .terraform.tfstate.lock.info
 crash.log
 crash.*.log
+
+data/metrics/

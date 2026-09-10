@@ -1,3 +1,4 @@
+import json
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -5,6 +6,7 @@ import pendulum
 
 from airflow.sdk import Param, dag, get_current_context, task
 from airflow.providers.standard.operators.bash import BashOperator
+from airflow.providers.standard.operators.python import PythonOperator
 
 
 # ============================================================
@@ -25,15 +27,96 @@ SPARK_JOB = (
 
 
 # ============================================================
+# DATA QUALITY FAILURE DIAGNOSTIC
+# ============================================================
+
+def read_quality_failure_metrics(
+    processing_date: str,
+):
+    year, month, day = processing_date.split("-")
+
+    metrics_path = (
+        PROJECT_DIR
+        / "data"
+        / "metrics"
+        / "aircraft_positions"
+        / f"year={year}"
+        / f"month={month}"
+        / f"day={day}"
+        / "quality_metrics.json"
+    )
+
+    if not metrics_path.exists():
+        raise FileNotFoundError(
+            f"Quality metrics not found: {metrics_path}"
+        )
+
+    with metrics_path.open(
+        "r",
+        encoding="utf-8",
+    ) as file:
+        metrics = json.load(file)
+
+    print("=" * 60)
+    print("DATA QUALITY FAILURE DIAGNOSTIC")
+    print("=" * 60)
+
+    print(
+        f"GLOBAL STATUS : "
+        f"{metrics.get('global_status')}"
+    )
+
+    print(
+        f"REJECTION RATE : "
+        f"{metrics.get('rejection_rate')}%"
+    )
+
+    print(
+        f"DUPLICATE RATE : "
+        f"{metrics.get('duplicate_rate')}%"
+    )
+
+    print(
+        f"VOLUME VARIATION : "
+        f"{metrics.get('volume_variation_rate')}%"
+    )
+
+    print(
+        f"FRESHNESS : "
+        f"{metrics.get('freshness_minutes')} min"
+    )
+
+    print(
+        f"RAW COUNT : "
+        f"{metrics.get('raw_count')}"
+    )
+
+    print(
+        f"REJECTED COUNT : "
+        f"{metrics.get('rejected_count')}"
+    )
+
+    print("=" * 60)
+
+
+# ============================================================
 # DAG
 # ============================================================
 
 @dag(
     dag_id="aviation_pipeline",
     schedule=None,
-    start_date=pendulum.datetime(2026, 9, 1, tz="UTC"),
+    start_date=pendulum.datetime(
+        2026,
+        9,
+        1,
+        tz="UTC",
+    ),
     catchup=False,
-    tags=["aviation", "training"],
+    tags=[
+        "aviation",
+        "training",
+    ],
     params={
         "processing_date": Param(
             "2026-09-03",
@@ -51,7 +134,9 @@ def aviation_pipeline():
 
     @task
     def start():
-        print("Démarrage du pipeline aviation")
+        print(
+            "Démarrage du pipeline aviation"
+        )
 
     # --------------------------------------------------------
     # TASK 2 - GET PROCESSING DATE
@@ -62,7 +147,9 @@ def aviation_pipeline():
 
         context = get_current_context()
 
-        processing_date = context["params"]["processing_date"]
+        processing_date = (
+            context["params"]["processing_date"]
+        )
 
         print(
             f"Date de traitement : "
@@ -77,7 +164,9 @@ def aviation_pipeline():
 
     @task(
         retries=2,
-        retry_delay=timedelta(seconds=10),
+        retry_delay=timedelta(
+            seconds=10
+        ),
     )
     def check_raw_file(
         processing_date: str,
@@ -125,7 +214,9 @@ def aviation_pipeline():
             f"{size} octets"
         )
 
-        return str(raw_file)
+        return str(
+            raw_file
+        )
 
     # --------------------------------------------------------
     # TASK 4 - RUN PYSPARK
@@ -138,13 +229,23 @@ def aviation_pipeline():
             f"{PYSPARK_PYTHON} "
             f"{SPARK_JOB} "
             "--input "
-            "'{{ ti.xcom_pull(task_ids=\"check_raw_file\") }}' "
+            "'{{ ti.xcom_pull("
+            "task_ids=\"check_raw_file\") }}' "
             "--processing-date "
-            "'{{ ti.xcom_pull(task_ids=\"get_processing_date\") }}'"
+            "'{{ ti.xcom_pull("
+            "task_ids=\"get_processing_date\") }}' "
+            "--expected-count 7 "
+            "--reference-time "
+            "'{{ ti.xcom_pull("
+            "task_ids=\"get_processing_date\") }}T13:30:00'"
         ),
-        cwd=str(PROJECT_DIR),
+        cwd=str(
+            PROJECT_DIR
+        ),
         retries=1,
-        retry_delay=timedelta(seconds=10),
+        retry_delay=timedelta(
+            seconds=10
+        ),
     )
 
     # --------------------------------------------------------
@@ -176,12 +277,14 @@ def aviation_pipeline():
             )
 
         parquet_files = list(
-            processed_dir.glob("*.parquet")
+            processed_dir.glob(
+                "*.parquet"
+            )
         )
 
         if not parquet_files:
             raise ValueError(
-                f"Aucun fichier Parquet trouvé dans : "
+                "Aucun fichier Parquet trouvé dans : "
                 f"{processed_dir}"
             )
 
@@ -191,14 +294,31 @@ def aviation_pipeline():
         )
 
         print(
-            f"Nombre de fichiers Parquet : "
+            "Nombre de fichiers Parquet : "
             f"{len(parquet_files)}"
         )
 
-        return len(parquet_files)
+        return len(
+            parquet_files
+        )
 
     # --------------------------------------------------------
-    # TASK 6 - END
+    # TASK 6 - QUALITY FAILURE DIAGNOSTIC
+    # --------------------------------------------------------
+
+    quality_failure_diagnostic = PythonOperator(
+        task_id="quality_failure_diagnostic",
+        python_callable=read_quality_failure_metrics,
+        op_kwargs={
+            "processing_date": (
+                "{{ params.processing_date }}"
+            ),
+        },
+        trigger_rule="one_failed",
+    )
+
+    # --------------------------------------------------------
+    # TASK 7 - END
     # --------------------------------------------------------
 
     @task
@@ -228,14 +348,18 @@ def aviation_pipeline():
 
     start_task = start()
 
-    processing_date = get_processing_date()
+    processing_date = (
+        get_processing_date()
+    )
 
     raw_file = check_raw_file(
         processing_date
     )
 
-    parquet_count = check_processed_data(
-        processing_date
+    parquet_count = (
+        check_processed_data(
+            processing_date
+        )
     )
 
     end_task = end(
@@ -245,7 +369,11 @@ def aviation_pipeline():
 
     start_task >> processing_date
 
-    raw_file >> run_pyspark >> parquet_count
+    raw_file >> run_pyspark
+
+    run_pyspark >> parquet_count
+
+    run_pyspark >> quality_failure_diagnostic
 
 
 # ============================================================

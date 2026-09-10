@@ -10,6 +10,16 @@ from spark.jobs.process_aircraft_positions import (
     split_valid_rejected,
     deduplicate_positions,
     enrich_positions,
+    compute_rejection_rate,
+    compute_duplicate_rate,
+    compute_volume_variation_rate,
+    compute_freshness_minutes,
+    get_rejection_status,
+    get_duplicate_status,
+    get_volume_status,
+    get_freshness_status,
+    get_global_quality_status,
+    enforce_quality_gate,
 )
 
 
@@ -175,3 +185,116 @@ def test_enrichment_adds_airline_name(spark):
 
     assert row.airline_name == "Air France"
 
+def test_quality_gate_fails_when_global_status_failed():
+    with pytest.raises(RuntimeError):
+        enforce_quality_gate("FAILED")
+
+
+def test_quality_gate_allows_warning():
+    enforce_quality_gate("WARNING")
+
+def test_rejection_rate_and_status():
+    rate = compute_rejection_rate(
+        raw_count=100,
+        rejected_count=25,
+    )
+
+    assert rate == 25.0
+    assert get_rejection_status(rate) == "FAILED"
+
+
+def test_duplicate_rate_and_status():
+    rate = compute_duplicate_rate(
+        valid_before_dedup=100,
+        duplicates_removed=5,
+    )
+
+    assert rate == 5.0
+    assert get_duplicate_status(rate) == "WARNING"
+
+
+def test_volume_variation_and_status():
+    rate = compute_volume_variation_rate(
+        expected_count=100,
+        actual_count=75,
+    )
+
+    assert rate == -25.0
+    assert get_volume_status(rate) == "FAILED"
+
+
+def test_freshness_and_status():
+    reference_time = datetime.fromisoformat(
+        "2026-09-03T13:30:00"
+    )
+
+    latest_ingestion = datetime.fromisoformat(
+        "2026-09-03T13:05:00"
+    )
+
+    freshness = compute_freshness_minutes(
+        reference_time,
+        latest_ingestion,
+    )
+
+    assert freshness == 25.0
+    assert get_freshness_status(freshness) == "OK"
+
+
+def test_freshness_failed():
+    reference_time = datetime.fromisoformat(
+        "2026-09-03T16:00:00"
+    )
+
+    latest_ingestion = datetime.fromisoformat(
+        "2026-09-03T13:00:00"
+    )
+
+    freshness = compute_freshness_minutes(
+        reference_time,
+        latest_ingestion,
+    )
+
+    assert freshness == 180.0
+    assert get_freshness_status(freshness) == "FAILED"
+
+
+def test_global_quality_status_failed_has_priority():
+    statuses = [
+        "OK",
+        "WARNING",
+        "FAILED",
+        "OK",
+    ]
+
+    assert get_global_quality_status(statuses) == "FAILED"
+
+
+def test_global_quality_status_warning():
+    statuses = [
+        "OK",
+        "WARNING",
+        "OK",
+    ]
+
+    assert get_global_quality_status(statuses) == "WARNING"
+
+
+def test_global_quality_status_ok():
+    statuses = [
+        "OK",
+        "OK",
+        "OK",
+    ]
+
+    assert get_global_quality_status(statuses) == "OK"
+
+def test_future_timestamp_freshness_failed():
+    freshness_minutes = -95.08
+
+    assert (
+        get_freshness_status(
+            freshness_minutes
+        )
+        == "FAILED"
+    )

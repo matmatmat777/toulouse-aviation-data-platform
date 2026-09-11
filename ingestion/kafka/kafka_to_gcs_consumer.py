@@ -2,56 +2,53 @@
 # KAFKA -> GCS RAW CONSUMER
 # TOULOUSE AVIATION DATA PLATFORM
 # ============================================================
-#
-# Objectif :
-#
-#   Kafka
-#     ↓
-#   Consumer Python
-#     ↓
-#   Buffer
-#     ↓
-#   Flush si :
-#       - batch plein
-#       OU
-#       - délai maximum atteint
-#     ↓
-#   JSONL
-#     ↓
-#   GCS RAW
-#     ↓
-#   Commit Kafka
-#
-# Stratégie :
-#   AT-LEAST-ONCE
-#
-# ============================================================
 
+import json
+import os
+import time
+from datetime import datetime, timezone
 
 from confluent_kafka import Consumer, TopicPartition
 from google.cloud import storage
-
-import json
-import time
-from datetime import datetime, timezone
 
 
 # ============================================================
 # 1. CONFIGURATION
 # ============================================================
 
-TOPIC = "aircraft_positions"
+TOPIC = os.getenv(
+    "KAFKA_TOPIC",
+    "aircraft_positions",
+)
 
-GROUP_ID = "aviation-gcs-writers"
+GROUP_ID = os.getenv(
+    "KAFKA_GROUP_ID",
+    "aviation-gcs-writers",
+)
 
-BATCH_SIZE = 3
+BOOTSTRAP_SERVERS = os.getenv(
+    "KAFKA_BOOTSTRAP_SERVERS",
+    "localhost:9092",
+)
 
-# Pour le test :
-# si le buffer n'est pas plein au bout de 10 secondes,
-# on l'envoie quand même vers GCS.
-MAX_WAIT_SECONDS = 10
+BUCKET_NAME = os.getenv(
+    "AVIATION_RAW_BUCKET",
+    "toulouse-aviation-data-raw",
+)
 
-BUCKET_NAME = "toulouse-aviation-data-raw"
+BATCH_SIZE = int(
+    os.getenv(
+        "KAFKA_BATCH_SIZE",
+        "3",
+    )
+)
+
+MAX_WAIT_SECONDS = int(
+    os.getenv(
+        "KAFKA_MAX_WAIT_SECONDS",
+        "10",
+    )
+)
 
 
 # ============================================================
@@ -60,34 +57,37 @@ BUCKET_NAME = "toulouse-aviation-data-raw"
 
 gcs_client = storage.Client()
 
-bucket = gcs_client.bucket(BUCKET_NAME)
+bucket = gcs_client.bucket(
+    BUCKET_NAME
+)
 
 
 # ============================================================
 # 3. CONSUMER KAFKA
 # ============================================================
 
-consumer = Consumer({
+consumer = Consumer(
+    {
+        "bootstrap.servers": BOOTSTRAP_SERVERS,
+        "group.id": GROUP_ID,
+        "auto.offset.reset": "earliest",
 
-    "bootstrap.servers": "localhost:9092",
-
-    "group.id": GROUP_ID,
-
-    "auto.offset.reset": "earliest",
-
-    # Commit automatique désactivé.
-    #
-    # Le commit sera effectué uniquement
-    # après un upload GCS réussi.
-    "enable.auto.commit": False
-})
+        # Commit automatique désactivé.
+        #
+        # Le commit est effectué uniquement
+        # après un upload GCS réussi.
+        "enable.auto.commit": False,
+    }
+)
 
 
 # ============================================================
 # 4. ABONNEMENT AU TOPIC
 # ============================================================
 
-consumer.subscribe([TOPIC])
+consumer.subscribe(
+    [TOPIC]
+)
 
 
 # ============================================================
@@ -99,15 +99,11 @@ buffer = []
 
 # Messages Kafka correspondants.
 #
-# On les conserve pour connaître :
-# - leur partition
-# - leur offset
-#
-# au moment du commit.
+# On les conserve pour connaître leur partition
+# et leur offset au moment du commit.
 kafka_messages = []
 
-# Heure d'arrivée du premier événement
-# du batch actuel.
+# Heure d'arrivée du premier événement du batch.
 #
 # None = aucun batch en cours.
 batch_start_time = None
@@ -122,23 +118,23 @@ def build_jsonl(events):
     Convertit plusieurs événements Python
     en contenu JSONL.
 
-    Exemple :
-
-    {"icao24":"39abcd"}
-    {"icao24":"4ca123"}
-
-    Une ligne = un événement JSON.
+    Une ligne JSON = un événement.
     """
 
     lines = []
 
     for event in events:
+        json_line = json.dumps(
+            event
+        )
 
-        json_line = json.dumps(event)
+        lines.append(
+            json_line
+        )
 
-        lines.append(json_line)
-
-    return "\n".join(lines)
+    return "\n".join(
+        lines
+    )
 
 
 # ============================================================
@@ -153,42 +149,36 @@ def upload_batch_to_gcs(events):
     Retourne l'URI GCS créée.
     """
 
-    now = datetime.now(timezone.utc)
-
-
-    # --------------------------------------------------------
-    # Construction du chemin de l'objet GCS
-    # --------------------------------------------------------
+    now = datetime.now(
+        timezone.utc
+    )
 
     object_path = (
         "raw/streaming/aircraft_positions/"
         f"year={now:%Y}/"
         f"month={now:%m}/"
         f"day={now:%d}/"
-        f"aircraft_positions_{now:%Y%m%d_%H%M%S_%f}.jsonl"
+        f"aircraft_positions_"
+        f"{now:%Y%m%d_%H%M%S_%f}.jsonl"
     )
 
+    jsonl_content = build_jsonl(
+        events
+    )
 
-    # --------------------------------------------------------
-    # Construction du contenu JSONL
-    # --------------------------------------------------------
-
-    jsonl_content = build_jsonl(events)
-
-
-    # --------------------------------------------------------
-    # Création de l'objet GCS
-    # --------------------------------------------------------
-
-    blob = bucket.blob(object_path)
+    blob = bucket.blob(
+        object_path
+    )
 
     blob.upload_from_string(
         jsonl_content,
-        content_type="application/x-ndjson"
+        content_type="application/x-ndjson",
     )
 
-
-    gcs_uri = f"gs://{BUCKET_NAME}/{object_path}"
+    gcs_uri = (
+        f"gs://{BUCKET_NAME}/"
+        f"{object_path}"
+    )
 
     return gcs_uri
 
@@ -203,52 +193,45 @@ def build_commit_positions(messages):
     pour toutes les partitions présentes
     dans le batch.
 
-    Exemple :
-
-    Partition 0 / offset 2
-    Partition 0 / offset 3
-    Partition 1 / offset 1
-
-    devient :
-
-    Partition 0 -> prochain offset 4
-    Partition 1 -> prochain offset 2
+    Kafka mémorise le prochain offset à lire.
     """
 
     offsets_to_commit = {}
 
-
     for kafka_message in messages:
 
-        partition = kafka_message.partition()
+        partition = (
+            kafka_message.partition()
+        )
 
-        # Kafka enregistre l'offset
-        # du PROCHAIN message à lire.
-        next_offset = kafka_message.offset() + 1
+        next_offset = (
+            kafka_message.offset()
+            + 1
+        )
 
-
-        # On conserve l'offset le plus avancé
-        # pour chaque partition.
         if (
             partition not in offsets_to_commit
-            or next_offset > offsets_to_commit[partition]
+            or next_offset
+            > offsets_to_commit[partition]
         ):
-            offsets_to_commit[partition] = next_offset
-
+            offsets_to_commit[
+                partition
+            ] = next_offset
 
     commit_positions = []
 
-
-    for partition, offset in offsets_to_commit.items():
+    for (
+        partition,
+        offset,
+    ) in offsets_to_commit.items():
 
         commit_positions.append(
             TopicPartition(
                 TOPIC,
                 partition,
-                offset
+                offset,
             )
         )
-
 
     return commit_positions
 
@@ -271,79 +254,87 @@ def flush_batch():
       ↓
     nettoyage des buffers
 
-    Le commit n'est effectué que si
+    Le commit Kafka n'est effectué que si
     l'upload GCS a réussi.
     """
 
     global batch_start_time
 
-
-    # Sécurité :
-    # si le buffer est vide,
-    # il n'y a rien à faire.
     if not buffer:
         return
 
-
-    print("\n========================================")
-    print("FLUSH DU BATCH")
-    print("========================================")
+    print(
+        "\n========================================"
+    )
+    print(
+        "FLUSH DU BATCH"
+    )
+    print(
+        "========================================"
+    )
 
     print(
-        f"Nombre d'événements : {len(buffer)}"
+        f"Nombre d'événements : "
+        f"{len(buffer)}"
     )
 
-
-    # ========================================================
+    # --------------------------------------------------------
     # 1. UPLOAD GCS
-    # ========================================================
+    # --------------------------------------------------------
 
-    print("Création du fichier JSONL...")
-
-    gcs_uri = upload_batch_to_gcs(buffer)
-
-
-    print("Upload GCS réussi.")
-    print(f"Objet créé : {gcs_uri}")
-
-
-    # ========================================================
-    # 2. CALCUL DES OFFSETS
-    # ========================================================
-
-    commit_positions = build_commit_positions(
-        kafka_messages
+    print(
+        "Création du fichier JSONL..."
     )
 
+    gcs_uri = upload_batch_to_gcs(
+        buffer
+    )
 
-    # ========================================================
+    print(
+        "Upload GCS réussi."
+    )
+    print(
+        f"Objet créé : {gcs_uri}"
+    )
+
+    # --------------------------------------------------------
+    # 2. CALCUL DES OFFSETS
+    # --------------------------------------------------------
+
+    commit_positions = (
+        build_commit_positions(
+            kafka_messages
+        )
+    )
+
+    # --------------------------------------------------------
     # 3. COMMIT KAFKA
-    # ========================================================
-    #
+    # --------------------------------------------------------
+
     # Cette ligne n'est atteinte que si
     # l'upload GCS a réussi.
-    #
 
     consumer.commit(
         offsets=commit_positions,
-        asynchronous=False
+        asynchronous=False,
     )
 
-
-    print("Offsets Kafka du batch validés.")
-
+    print(
+        "Offsets Kafka du batch validés."
+    )
 
     for position in commit_positions:
 
         print(
-            f"  Partition {position.partition} "
-            f"→ prochain offset {position.offset}"
+            f"  Partition "
+            f"{position.partition} "
+            f"→ prochain offset "
+            f"{position.offset}"
         )
 
-
-    # ========================================================
+    # --------------------------------------------------------
     # 4. NETTOYAGE
-    # ========================================================
+    # --------------------------------------------------------
 
     buffer.clear()
 
@@ -351,27 +342,53 @@ def flush_batch():
 
     batch_start_time = None
 
-
-    print("Buffers vidés.")
-    print("========================================\n")
+    print(
+        "Buffers vidés."
+    )
+    print(
+        "========================================\n"
+    )
 
 
 # ============================================================
 # 10. DÉMARRAGE
 # ============================================================
 
-print("========================================")
-print("Kafka -> GCS Consumer")
-print("========================================")
+print(
+    "========================================"
+)
+print(
+    "Kafka -> GCS Consumer"
+)
+print(
+    "========================================"
+)
 
-print(f"Topic          : {TOPIC}")
-print(f"Consumer Group : {GROUP_ID}")
-print(f"Batch size     : {BATCH_SIZE}")
-print(f"Max wait       : {MAX_WAIT_SECONDS}s")
-print(f"Bucket GCS     : {BUCKET_NAME}")
+print(
+    f"Bootstrap      : {BOOTSTRAP_SERVERS}"
+)
+print(
+    f"Topic          : {TOPIC}"
+)
+print(
+    f"Consumer Group : {GROUP_ID}"
+)
+print(
+    f"Batch size     : {BATCH_SIZE}"
+)
+print(
+    f"Max wait       : {MAX_WAIT_SECONDS}s"
+)
+print(
+    f"Bucket GCS     : {BUCKET_NAME}"
+)
 
-print("\nEn attente d'événements...")
-print("Ctrl + C pour arrêter.")
+print(
+    "\nEn attente d'événements..."
+)
+print(
+    "Ctrl + C pour arrêter."
+)
 
 
 # ============================================================
@@ -386,17 +403,13 @@ try:
         # Lecture Kafka
         # ----------------------------------------------------
 
-        message = consumer.poll(1.0)
+        message = consumer.poll(
+            1.0
+        )
 
-
-        # ====================================================
-        # 12. AUCUN NOUVEAU MESSAGE
-        # ====================================================
-        #
-        # Même sans nouveau message,
-        # il faut vérifier si un batch partiel
-        # attend depuis trop longtemps.
-        #
+        # ----------------------------------------------------
+        # Aucun nouveau message
+        # ----------------------------------------------------
 
         if message is None:
 
@@ -406,11 +419,14 @@ try:
             ):
 
                 elapsed_time = (
-                    time.time() - batch_start_time
+                    time.time()
+                    - batch_start_time
                 )
 
-
-                if elapsed_time >= MAX_WAIT_SECONDS:
+                if (
+                    elapsed_time
+                    >= MAX_WAIT_SECONDS
+                ):
 
                     print(
                         f"\nTimeout atteint "
@@ -424,13 +440,11 @@ try:
 
                     flush_batch()
 
-
             continue
 
-
-        # ====================================================
-        # 13. ERREUR KAFKA
-        # ====================================================
+        # ----------------------------------------------------
+        # Erreur Kafka
+        # ----------------------------------------------------
 
         if message.error():
 
@@ -441,10 +455,9 @@ try:
 
             continue
 
-
-        # ====================================================
-        # 14. CONVERSION DU MESSAGE
-        # ====================================================
+        # ----------------------------------------------------
+        # Conversion du message
+        # ----------------------------------------------------
 
         value = (
             message
@@ -452,24 +465,26 @@ try:
             .decode("utf-8")
         )
 
-        event = json.loads(value)
+        event = json.loads(
+            value
+        )
 
+        # ----------------------------------------------------
+        # Ajout au buffer
+        # ----------------------------------------------------
 
-        # ====================================================
-        # 15. AJOUT AU BUFFER
-        # ====================================================
+        buffer.append(
+            event
+        )
 
-        buffer.append(event)
+        kafka_messages.append(
+            message
+        )
 
-        kafka_messages.append(message)
-
-
-        # Si c'est le premier message du batch,
-        # on démarre le chrono.
         if batch_start_time is None:
-
-            batch_start_time = time.time()
-
+            batch_start_time = (
+                time.time()
+            )
 
         print(
             f"Événement ajouté au buffer : "
@@ -479,10 +494,9 @@ try:
             f"({len(buffer)}/{BATCH_SIZE})"
         )
 
-
-        # ====================================================
-        # 16. TEST DE LA TAILLE DU BATCH
-        # ====================================================
+        # ----------------------------------------------------
+        # Test de la taille du batch
+        # ----------------------------------------------------
 
         if len(buffer) >= BATCH_SIZE:
 
@@ -494,20 +508,24 @@ try:
 
 
 # ============================================================
-# 17. ARRÊT MANUEL
+# 12. ARRÊT MANUEL
 # ============================================================
 
 except KeyboardInterrupt:
 
-    print("\nArrêt demandé par l'utilisateur.")
+    print(
+        "\nArrêt demandé par l'utilisateur."
+    )
 
 
 # ============================================================
-# 18. FERMETURE
+# 13. FERMETURE
 # ============================================================
 
 finally:
 
     consumer.close()
 
-    print("Consumer Kafka fermé proprement.")
+    print(
+        "Consumer Kafka fermé proprement."
+    )

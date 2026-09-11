@@ -2,8 +2,8 @@ version: 2
 
 sources:
   - name: aviation_raw
-    database: toulouse-aviation-data
-    schema: aviation_raw
+    database: "{{ env_var('GCP_PROJECT_ID', 'toulouse-aviation-data') }}"
+    schema: "{{ env_var('DBT_RAW_DATASET', 'aviation_raw') }}"
 
     tables:
       - name: aircraft_positions

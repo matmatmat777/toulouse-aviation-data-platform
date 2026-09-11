@@ -1,4 +1,5 @@
 import json
+import os
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -13,16 +14,58 @@ from airflow.providers.standard.operators.python import PythonOperator
 # CONFIGURATION
 # ============================================================
 
-PROJECT_DIR = Path(
-    "/home/matde/projects/toulouse-aviation-data-platform"
+# Racine du projet détectée automatiquement à partir de ce fichier :
+#
+# airflow/dags/aviation_pipeline.py
+#        ↑
+# airflow/dags
+# airflow
+# projet
+#
+# Une variable d'environnement permet néanmoins de la surcharger
+# en DEV, PROD, Docker, VM, etc.
+
+DEFAULT_PROJECT_DIR = (
+    Path(__file__)
+    .resolve()
+    .parents[2]
 )
 
-PYSPARK_PYTHON = (
-    "/home/matde/.venvs/toulouse-aviation/bin/python"
+PROJECT_DIR = Path(
+    os.getenv(
+        "AVIATION_PROJECT_DIR",
+        str(DEFAULT_PROJECT_DIR),
+    )
+).resolve()
+
+
+# Le DAG Airflow et PySpark utilisent actuellement deux
+# environnements Python différents.
+#
+# Cette valeur peut être remplacée par une variable
+# d'environnement selon l'environnement d'exécution.
+
+DEFAULT_PYSPARK_PYTHON = (
+    Path.home()
+    / ".venvs"
+    / "toulouse-aviation"
+    / "bin"
+    / "python"
 )
+
+PYSPARK_PYTHON = os.getenv(
+    "AVIATION_PYSPARK_PYTHON",
+    str(DEFAULT_PYSPARK_PYTHON),
+)
+
+
+# Chemin du job Spark construit à partir de la racine du projet.
 
 SPARK_JOB = (
-    f"{PROJECT_DIR}/spark/jobs/process_aircraft_positions.py"
+    PROJECT_DIR
+    / "spark"
+    / "jobs"
+    / "process_aircraft_positions.py"
 )
 
 

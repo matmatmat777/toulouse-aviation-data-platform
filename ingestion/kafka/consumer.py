@@ -1,71 +1,75 @@
-# ============================================================
-# CONSUMER KAFKA - TOULOUSE AVIATION DATA PLATFORM
-# ============================================================
-#
-# Objectif :
-#   Lire les événements de positions d'avions présents
-#   dans le topic Kafka "aircraft_positions".
-#
-# Pour ce test :
-#
-#   Kafka
-#     ↓
-#   Consumer Python
-#     ↓
-#   affichage dans le terminal
-#
-# Le commit manuel est volontairement désactivé
-# pour observer le comportement du Consumer Group
-# et le rebalancing.
-#
-# ============================================================
-
+import os
 
 from confluent_kafka import Consumer
-import os
 
 
 # ============================================================
 # 1. CONFIGURATION
 # ============================================================
 
-TOPIC = "aircraft_positions"
-
-GROUP_ID = "aviation-rebalance-test"
-
-
-consumer = Consumer({
-
-    # Adresse du broker Kafka.
-    "bootstrap.servers": os.environ.get(
+BOOTSTRAP_SERVERS = os.getenv(
     "KAFKA_BOOTSTRAP_SERVERS",
-    "localhost:9092"
-    ),
-    # Consumer Group utilisé pour le test de rebalancing.
-    "group.id": GROUP_ID,
+    "localhost:9092",
+)
 
-    # Comme ce groupe est nouveau,
-    # on lit depuis les messages les plus anciens disponibles.
-    "auto.offset.reset": "earliest",
+TOPIC = os.getenv(
+    "KAFKA_TOPIC",
+    "aircraft_positions",
+)
 
-    # Commit automatique désactivé.
-    "enable.auto.commit": False
-})
+GROUP_ID = os.getenv(
+    "KAFKA_TEST_GROUP_ID",
+    "aviation-rebalance-test",
+)
+
+
+consumer = Consumer(
+    {
+        "bootstrap.servers": BOOTSTRAP_SERVERS,
+        "group.id": GROUP_ID,
+        "auto.offset.reset": "earliest",
+        "enable.auto.commit": False,
+    }
+)
 
 
 # ============================================================
 # 2. ABONNEMENT AU TOPIC
 # ============================================================
 
-consumer.subscribe([TOPIC])
+consumer.subscribe(
+    [TOPIC]
+)
 
 
-print("Consumer démarré.")
-print(f"Écoute du topic : {TOPIC}")
-print(f"Consumer Group : {GROUP_ID}")
-print("Commit automatique : désactivé")
-print("Commit manuel : désactivé pour le test de rebalancing")
-print("Ctrl + C pour arrêter.")
+print(
+    "Consumer démarré."
+)
+
+print(
+    f"Kafka bootstrap : {BOOTSTRAP_SERVERS}"
+)
+
+print(
+    f"Écoute du topic : {TOPIC}"
+)
+
+print(
+    f"Consumer Group : {GROUP_ID}"
+)
+
+print(
+    "Commit automatique : désactivé"
+)
+
+print(
+    "Commit manuel : désactivé pour "
+    "le test de rebalancing"
+)
+
+print(
+    "Ctrl + C pour arrêter."
+)
 
 
 # ============================================================
@@ -76,30 +80,19 @@ try:
 
     while True:
 
-        # ----------------------------------------------------
-        # POLL
-        # ----------------------------------------------------
-        #
-        # Le consumer demande à Kafka :
-        #
-        # "As-tu un message pour moi ?"
-        #
-        # Il attend au maximum 1 seconde.
-        #
-
-        message = consumer.poll(1.0)
-
+        message = consumer.poll(
+            1.0
+        )
 
         # ----------------------------------------------------
-        # AUCUN MESSAGE
+        # Aucun message
         # ----------------------------------------------------
 
         if message is None:
             continue
 
-
         # ----------------------------------------------------
-        # ERREUR KAFKA
+        # Erreur Kafka
         # ----------------------------------------------------
 
         if message.error():
@@ -111,10 +104,9 @@ try:
 
             continue
 
-
-        # ====================================================
-        # 4. RÉCUPÉRATION DE LA KEY
-        # ============================================================
+        # ----------------------------------------------------
+        # Récupération de la key
+        # ----------------------------------------------------
 
         key = (
             message.key().decode("utf-8")
@@ -122,60 +114,80 @@ try:
             else None
         )
 
+        # ----------------------------------------------------
+        # Récupération de la value
+        # ----------------------------------------------------
 
-        # ====================================================
-        # 5. RÉCUPÉRATION DE LA VALUE
-        # ============================================================
+        value = (
+            message
+            .value()
+            .decode("utf-8")
+        )
 
-        value = message.value().decode("utf-8")
+        # ----------------------------------------------------
+        # Affichage
+        # ----------------------------------------------------
 
+        print(
+            "\n----------------------------------------"
+        )
 
-        # ====================================================
-        # 6. AFFICHAGE DU MESSAGE
-        # ============================================================
+        print(
+            "Événement reçu"
+        )
 
-        print("\n----------------------------------------")
-        print("Événement reçu")
-        print("----------------------------------------")
+        print(
+            "----------------------------------------"
+        )
 
-        print(f"Key       : {key}")
-        print(f"Partition : {message.partition()}")
-        print(f"Offset    : {message.offset()}")
-        print(f"Value     : {value}")
+        print(
+            f"Key       : {key}"
+        )
 
+        print(
+            f"Partition : {message.partition()}"
+        )
 
-        # ====================================================
-        # 7. COMMIT MANUEL
-        # ============================================================
+        print(
+            f"Offset    : {message.offset()}"
+        )
+
+        print(
+            f"Value     : {value}"
+        )
+
+        # ----------------------------------------------------
+        # Commit manuel
+        # ----------------------------------------------------
         #
         # Désactivé volontairement pendant
         # le test de rebalancing.
         #
-        # Sinon :
-        #
         # consumer.commit(
         #     message=message,
-        #     asynchronous=False
+        #     asynchronous=False,
         # )
-        #
-        # print("Offset validé (commit).")
 
 
 # ============================================================
-# 8. ARRÊT AVEC CTRL + C
+# 4. ARRÊT
 # ============================================================
 
 except KeyboardInterrupt:
 
-    print("\nArrêt demandé par l'utilisateur.")
+    print(
+        "\nArrêt demandé par l'utilisateur."
+    )
 
 
 # ============================================================
-# 9. FERMETURE PROPRE
+# 5. FERMETURE PROPRE
 # ============================================================
 
 finally:
 
     consumer.close()
 
-    print("Consumer Kafka fermé proprement.")
+    print(
+        "Consumer Kafka fermé proprement."
+    )

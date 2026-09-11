@@ -1,13 +1,18 @@
-from google.cloud import storage
 import json
+import os
 from datetime import datetime, timezone
+
+from google.cloud import storage
 
 
 # -------------------------------------------------------------------
 # CONFIGURATION
 # -------------------------------------------------------------------
 
-BUCKET_NAME = "toulouse-aviation-data-raw"
+BUCKET_NAME = os.getenv(
+    "AVIATION_RAW_BUCKET",
+    "toulouse-aviation-data-raw",
+)
 
 
 # -------------------------------------------------------------------
@@ -39,23 +44,8 @@ def upload_aircraft_position(data: dict) -> str:
     La fonction retourne l'URI GCS de l'objet créé.
     """
 
-    # On récupère l'heure actuelle en UTC.
-    #
-    # UTC est préférable dans un pipeline Data :
-    # les avions et les systèmes peuvent fonctionner
-    # dans différents fuseaux horaires.
     now = datetime.now(timezone.utc)
 
-    # Construction dynamique du chemin GCS.
-    #
-    # Exemple :
-    #
-    # raw/streaming/aircraft_positions/
-    # year=2026/month=09/day=01/
-    # positions_20260901_160530.json
-    #
-    # On ne code donc plus manuellement :
-    # year=2026/month=09/day=01
     object_path = (
         "raw/streaming/aircraft_positions/"
         f"year={now:%Y}/"
@@ -64,22 +54,13 @@ def upload_aircraft_position(data: dict) -> str:
         f"positions_{now:%Y%m%d_%H%M%S_%f}.json"
     )
 
-    # Création d'une référence vers le futur objet GCS.
     blob = bucket.blob(object_path)
 
-    # Transformation :
-    #
-    # dictionnaire Python
-    #       ↓
-    # chaîne JSON
-    #       ↓
-    # upload dans GCS
     blob.upload_from_string(
         json.dumps(data),
-        content_type="application/json"
+        content_type="application/json",
     )
 
-    # Construction de l'URI complète.
     gcs_uri = f"gs://{BUCKET_NAME}/{object_path}"
 
     return gcs_uri
@@ -91,16 +72,19 @@ def upload_aircraft_position(data: dict) -> str:
 
 if __name__ == "__main__":
 
-    # Événement fictif représentant une position d'avion.
     test_position = {
         "icao24": "39abcd",
         "callsign": "AFR123",
         "latitude": 43.6047,
         "longitude": 1.4442,
         "altitude": 11000,
-        "timestamp": datetime.now(timezone.utc).isoformat()
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
-    uri = upload_aircraft_position(test_position)
+    uri = upload_aircraft_position(
+        test_position
+    )
 
-    print(f"Objet RAW créé : {uri}")
+    print(
+        f"Objet RAW créé : {uri}"
+    )

@@ -2,7 +2,8 @@ import argparse
 import json
 import logging
 
-from datetime import datetime
+from datetime import UTC, datetime
+
 from pathlib import Path
 
 from pyspark.sql import DataFrame, SparkSession
@@ -102,6 +103,15 @@ def parse_args():
         help=(
             "Heure de référence ISO pour la freshness. "
             "Exemple : 2026-09-03T13:30:00"
+        ),
+    )
+
+    parser.add_argument(
+        "--run-id",
+        default=None,
+        help=(
+            "Identifiant unique de l'exécution. "
+            "S'il n'est pas fourni, il est généré automatiquement."
         ),
     )
 
@@ -310,7 +320,7 @@ def get_freshness_status(
         return "FAILED"
 
     # Timestamp situé dans le futur par rapport
-    # à notre heure de référence
+    # à notre heure de référence.
     if freshness_minutes < 0:
         return "FAILED"
 
@@ -554,11 +564,31 @@ def build_output_paths(
 def main():
     args = parse_args()
 
+    # --------------------------------------------------------
+    # RUN ID
+    # --------------------------------------------------------
+    #
+    # Le run_id permet de corréler les logs et les métriques
+    # appartenant à une même exécution.
+    #
+    # Airflow pourra fournir son propre run_id.
+    # Sinon le job en génère automatiquement un.
+
+    run_id = (
+        args.run_id
+        if args.run_id
+        else datetime.now(UTC).strftime(
+            "%Y%m%dT%H%M%SZ"
+        )
+    )
+
     spark = create_spark_session()
 
     logger.info(
-        "Job started input=%s processing_date=%s "
-        "expected_count=%s reference_time=%s",
+        "Job started run_id=%s input=%s "
+        "processing_date=%s expected_count=%s "
+        "reference_time=%s",
+        run_id,
         args.input,
         args.processing_date,
         args.expected_count,
@@ -584,7 +614,8 @@ def main():
     )
 
     logger.info(
-        "RAW loaded raw_count=%s",
+        "RAW loaded run_id=%s raw_count=%s",
+        run_id,
         raw_count,
     )
 
@@ -757,11 +788,13 @@ def main():
 
     logger.info(
         "Data quality metrics "
+        "run_id=%s "
         "raw_count=%s "
         "valid_before_dedup=%s "
         "rejected_count=%s "
         "duplicates_removed=%s "
         "valid_after_dedup=%s",
+        run_id,
         raw_count,
         valid_before_dedup_count,
         rejected_count,
@@ -771,11 +804,13 @@ def main():
 
     logger.info(
         "Data quality status "
+        "run_id=%s "
         "rejection_rate=%.2f "
         "rejection_status=%s "
         "duplicate_rate=%.2f "
         "duplicate_status=%s "
         "global_status=%s",
+        run_id,
         rejection_rate,
         rejection_status,
         duplicate_rate,
@@ -785,10 +820,13 @@ def main():
 
     if volume_status is not None:
         logger.info(
-            "Volume metric expected_count=%s "
+            "Volume metric "
+            "run_id=%s "
+            "expected_count=%s "
             "actual_count=%s "
             "variation_rate=%.2f "
             "status=%s",
+            run_id,
             args.expected_count,
             raw_count,
             volume_variation_rate,
@@ -798,9 +836,11 @@ def main():
     if freshness_status is not None:
         logger.info(
             "Freshness metric "
+            "run_id=%s "
             "latest_ingestion_timestamp=%s "
             "freshness_minutes=%.2f "
             "status=%s",
+            run_id,
             latest_ingestion_timestamp,
             freshness_minutes,
             freshness_status,
@@ -811,6 +851,7 @@ def main():
     # --------------------------------------------------------
 
     metrics = {
+        "run_id": run_id,
         "processing_date": args.processing_date,
         "input": args.input,
         "raw_count": raw_count,
@@ -875,7 +916,7 @@ def main():
             global_status
         ),
         "generated_at": (
-            datetime.utcnow().isoformat()
+            datetime.now(UTC).isoformat()
         ),
     }
 
@@ -933,7 +974,9 @@ def main():
     )
 
     logger.info(
-        "Airline enrichment completed"
+        "Airline enrichment completed "
+        "run_id=%s",
+        run_id,
     )
 
     # --------------------------------------------------------
@@ -975,7 +1018,9 @@ def main():
     )
 
     logger.info(
-        "Processed data written path=%s",
+        "Processed data written "
+        "run_id=%s path=%s",
+        run_id,
         processed_path,
     )
 
@@ -997,14 +1042,18 @@ def main():
     )
 
     logger.info(
-        "Rejected data written path=%s",
+        "Rejected data written "
+        "run_id=%s path=%s",
+        run_id,
         rejected_path,
     )
 
     spark.stop()
 
     logger.info(
-        "Job completed successfully"
+        "Job completed successfully "
+        "run_id=%s",
+        run_id,
     )
 
 

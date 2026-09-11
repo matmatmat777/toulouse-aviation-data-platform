@@ -280,7 +280,9 @@ def aviation_pipeline():
             "--expected-count 7 "
             "--reference-time "
             "'{{ ti.xcom_pull("
-            "task_ids=\"get_processing_date\") }}T13:30:00'"
+            "task_ids=\"get_processing_date\") }}T13:30:00' "
+            "--run-id "
+            "'{{ run_id }}'"
         ),
         cwd=str(
             PROJECT_DIR

@@ -14,17 +14,6 @@ from airflow.providers.standard.operators.python import PythonOperator
 # CONFIGURATION
 # ============================================================
 
-# Racine du projet détectée automatiquement à partir de ce fichier :
-#
-# airflow/dags/aviation_pipeline.py
-#        ↑
-# airflow/dags
-# airflow
-# projet
-#
-# Une variable d'environnement permet néanmoins de la surcharger
-# en DEV, PROD, Docker, VM, etc.
-
 DEFAULT_PROJECT_DIR = (
     Path(__file__)
     .resolve()
@@ -38,12 +27,6 @@ PROJECT_DIR = Path(
     )
 ).resolve()
 
-
-# Le DAG Airflow et PySpark utilisent actuellement deux
-# environnements Python différents.
-#
-# Cette valeur peut être remplacée par une variable
-# d'environnement selon l'environnement d'exécution.
 
 DEFAULT_PYSPARK_PYTHON = (
     Path.home()
@@ -59,8 +42,6 @@ PYSPARK_PYTHON = os.getenv(
 )
 
 
-# Chemin du job Spark construit à partir de la racine du projet.
-
 SPARK_JOB = (
     PROJECT_DIR
     / "spark"
@@ -75,6 +56,7 @@ SPARK_JOB = (
 
 def read_quality_failure_metrics(
     processing_date: str,
+    run_id: str,
 ):
     year, month, day = processing_date.split("-")
 
@@ -86,13 +68,29 @@ def read_quality_failure_metrics(
         / f"year={year}"
         / f"month={month}"
         / f"day={day}"
+        / f"run_id={run_id}"
         / "quality_metrics.json"
     )
 
+    # A technical failure may occur before the PySpark job
+    # has persisted its data-quality metrics.
     if not metrics_path.exists():
-        raise FileNotFoundError(
-            f"Quality metrics not found: {metrics_path}"
+        print("=" * 60)
+        print("PIPELINE FAILURE DIAGNOSTIC")
+        print("=" * 60)
+        print(f"RUN ID : {run_id}")
+        print(f"PROCESSING DATE : {processing_date}")
+        print("QUALITY METRICS : NOT AVAILABLE")
+        print(
+            "The pipeline failed before quality metrics "
+            "were persisted or the metrics are inaccessible."
         )
+        print(
+            "Check the run_pyspark task logs for a "
+            "technical failure."
+        )
+        print("=" * 60)
+        return
 
     with metrics_path.open(
         "r",
@@ -103,6 +101,11 @@ def read_quality_failure_metrics(
     print("=" * 60)
     print("DATA QUALITY FAILURE DIAGNOSTIC")
     print("=" * 60)
+
+    print(
+        f"RUN ID : "
+        f"{metrics.get('run_id')}"
+    )
 
     print(
         f"GLOBAL STATUS : "
@@ -187,7 +190,6 @@ def aviation_pipeline():
 
     @task
     def get_processing_date():
-
         context = get_current_context()
 
         processing_date = (
@@ -214,7 +216,6 @@ def aviation_pipeline():
     def check_raw_file(
         processing_date: str,
     ):
-
         date = datetime.strptime(
             processing_date,
             "%Y-%m-%d",
@@ -277,10 +278,6 @@ def aviation_pipeline():
             "--processing-date "
             "'{{ ti.xcom_pull("
             "task_ids=\"get_processing_date\") }}' "
-            "--expected-count 7 "
-            "--reference-time "
-            "'{{ ti.xcom_pull("
-            "task_ids=\"get_processing_date\") }}T13:30:00' "
             "--run-id "
             "'{{ run_id }}'"
         ),
@@ -301,7 +298,6 @@ def aviation_pipeline():
     def check_processed_data(
         processing_date: str,
     ):
-
         date = datetime.strptime(
             processing_date,
             "%Y-%m-%d",
@@ -358,6 +354,9 @@ def aviation_pipeline():
             "processing_date": (
                 "{{ params.processing_date }}"
             ),
+            "run_id": (
+                "{{ run_id }}"
+            ),
         },
         trigger_rule="one_failed",
     )
@@ -371,7 +370,6 @@ def aviation_pipeline():
         parquet_count: int,
         processing_date: str,
     ):
-
         print(
             "Pipeline aviation terminé "
             "avec succès."

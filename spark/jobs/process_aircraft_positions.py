@@ -385,12 +385,25 @@ def persist_quality_metrics(
     metrics: dict,
     metrics_path: Path,
 ):
-    metrics_path.parent.mkdir(
+    run_id = metrics.get("run_id")
+
+    if not run_id:
+        raise ValueError(
+            "run_id is required to persist quality metrics"
+        )
+
+    run_metrics_path = (
+        metrics_path.parent
+        / f"run_id={run_id}"
+        / metrics_path.name
+    )
+
+    run_metrics_path.parent.mkdir(
         parents=True,
         exist_ok=True,
     )
 
-    with metrics_path.open(
+    with run_metrics_path.open(
         "w",
         encoding="utf-8",
     ) as file:
@@ -402,11 +415,73 @@ def persist_quality_metrics(
         )
 
     logger.info(
-        "Quality metrics persisted path=%s",
-        metrics_path,
+        "Quality metrics persisted run_id=%s path=%s",
+        run_id,
+        run_metrics_path,
     )
 
+def persist_alert(
+    metrics: dict,
+    alerts_base_path: Path = Path("data/alerts/aircraft_positions"),
+):
+    global_status = metrics.get("global_status")
 
+    if global_status != "FAILED":
+        return
+
+    run_id = metrics.get("run_id")
+    processing_date = metrics.get("processing_date")
+
+    if not run_id:
+        raise ValueError(
+            "run_id is required to persist an alert"
+        )
+
+    if not processing_date:
+        raise ValueError(
+            "processing_date is required to persist an alert"
+        )
+
+    alert = {
+        "run_id": run_id,
+        "processing_date": processing_date,
+        "global_status": global_status,
+        "rejection_rate": metrics.get("rejection_rate"),
+        "duplicate_rate": metrics.get("duplicate_rate"),
+        "freshness_minutes": metrics.get("freshness_minutes"),
+        "message": (
+            "Critical data quality threshold exceeded"
+        ),
+    }
+
+    alert_path = (
+        alerts_base_path
+        / f"processing_date={processing_date}"
+        / f"run_id={run_id}"
+        / "alert.json"
+    )
+
+    alert_path.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    with alert_path.open(
+        "w",
+        encoding="utf-8",
+    ) as file:
+        json.dump(
+            alert,
+            file,
+            indent=2,
+            ensure_ascii=False,
+        )
+
+    logger.error(
+        "Alert persisted run_id=%s path=%s",
+        run_id,
+        alert_path,
+    )
 # ============================================================
 # DATA QUALITY GATE
 # ============================================================
@@ -934,7 +1009,7 @@ def main():
         metrics,
         metrics_path,
     )
-
+    persist_alert(metrics)
     # --------------------------------------------------------
     # QUALITY GATE
     # --------------------------------------------------------
